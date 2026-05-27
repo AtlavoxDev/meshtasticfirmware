@@ -390,6 +390,29 @@ void nrf52Setup()
     if (sd_power_gpregret_get(1, &prevShutdownReason) != NRF_SUCCESS)
         prevShutdownReason = NRF_POWER->GPREGRET2;
     LOG_INFO("Previous shutdown reason: 0x%02x", (uint8_t)prevShutdownReason);
+
+    // If the previous shutdown was intentional (user button / admin / menu), the only
+    // legitimate wake source is the button (GPIO DETECT on PIN_BUTTON1, which sets
+    // RESETREAS.OFF). Anything else - USB VBUS change, brown-out, NFC field, debug
+    // interface - is an unwanted wake, so refuse to boot and return to SYSTEM_OFF.
+    // GPREGRET[1] is left intact so subsequent unwanted wakes hit this same path,
+    // and the user can still wake the device normally by pressing the button.
+    if (isUserShutdownReason((uint8_t)prevShutdownReason) && !(why & POWER_RESETREAS_OFF_Msk)) {
+        LOG_WARN("Unwanted wake from intentional shutdown (RESETREAS=0x%x); returning to SYSTEM_OFF", why);
+        // Clear RESETREAS so the next wake reports an accurate cause.
+        NRF_POWER->RESETREAS = 0xFFFFFFFFU;
+        // Restore the original reason so variant_shutdown() arms the same wake policy
+        // it did on the original shutdown (button-only for user shutdowns).
+        pendingShutdownReason = (uint8_t)prevShutdownReason;
+        variant_shutdown();
+        // Try the SoftDevice path first; fall back to the direct register write.
+        sd_power_system_off();
+        NRF_POWER->SYSTEMOFF = 1;
+        // Unreachable.
+        while (true) {
+        }
+    }
+
     if (sd_power_gpregret_clr(1, 0xFF) != NRF_SUCCESS)
         NRF_POWER->GPREGRET2 = 0;
 
