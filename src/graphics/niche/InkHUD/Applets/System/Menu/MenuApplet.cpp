@@ -8,6 +8,7 @@
 #include "MeshService.h"
 #include "RTC.h"
 #include "Router.h"
+#include "ShutdownReason.h"
 #include "airtime.h"
 #include "graphics/niche/Utils/FlashData.h"
 #include "main.h"
@@ -506,6 +507,7 @@ void InkHUD::MenuApplet::execute(MenuItem item)
 
     case SHUTDOWN:
         LOG_INFO("Shutting down from menu");
+        setPendingShutdownReason(SHUTDOWN_REASON_USER_MENU);
         shutdownAtMsec = millis();
         // Menu is then sent to background via onShutdown
         break;

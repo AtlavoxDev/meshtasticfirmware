@@ -17,6 +17,7 @@
 #include "MessageStore.h"
 #include "NodeDB.h"
 #include "PowerFSM.h"
+#include "ShutdownReason.h"
 #include "Throttle.h"
 #include "buzz/buzz.h"
 #include "configuration.h"
@@ -688,6 +689,12 @@ class AnalogBatteryLevel : public HasBatteryLevel
 };
 
 static AnalogBatteryLevel analogLevel;
+
+volatile uint8_t pendingShutdownReason = SHUTDOWN_REASON_UNKNOWN;
+void setPendingShutdownReason(uint8_t r)
+{
+    pendingShutdownReason = r;
+}
 
 Power::Power() : OSThread("Power")
 {

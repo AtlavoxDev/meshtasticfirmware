@@ -1,4 +1,5 @@
 #include "SystemCommandsModule.h"
+#include "ShutdownReason.h"
 #include "input/InputBroker.h"
 #include "meshUtils.h"
 
@@ -113,6 +114,7 @@ int SystemCommandsModule::handleInputEvent(const InputEvent *event)
         return true;
     // Power control
     case INPUT_BROKER_SHUTDOWN:
+        setPendingShutdownReason(SHUTDOWN_REASON_USER_BUTTON);
         shutdownAtMsec = millis();
         return true;
     // factory reset

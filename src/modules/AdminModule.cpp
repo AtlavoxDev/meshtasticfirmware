@@ -5,6 +5,7 @@
 #include "PowerFSM.h"
 #include "RTC.h"
 #include "SPILock.h"
+#include "ShutdownReason.h"
 #include "input/InputBroker.h"
 #include "meshUtils.h"
 #include <FSCommon.h>
@@ -313,6 +314,7 @@ bool AdminModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshta
     case meshtastic_AdminMessage_shutdown_seconds_tag: {
         int32_t s = r->shutdown_seconds;
         LOG_INFO("Shutdown in %d seconds", s);
+        setPendingShutdownReason(SHUTDOWN_REASON_USER_ADMIN);
         shutdownAtMsec = (s < 0) ? 0 : (millis() + s * 1000);
         break;
     }

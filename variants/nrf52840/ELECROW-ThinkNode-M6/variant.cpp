@@ -19,6 +19,7 @@
 */
 
 #include "variant.h"
+#include "ShutdownReason.h"
 #include "nrf.h"
 #include "power.h"
 #include "wiring_constants.h"
@@ -44,9 +45,12 @@ void initVariant()
 void variant_shutdown()
 {
     // This sets the pin to OUTPUT and LOW for the pins *not* in the if block.
+    // EXT_PWR_DETECT and EXT_CHRG_DETECT are skipped here because they are
+    // explicitly reconfigured as inputs below for the auto-recovery branch.
     for (int pin = 0; pin < 48; pin++) {
-        if (pin == PIN_GPS_EN || pin == ADC_CTRL || pin == PIN_BUTTON1 || pin == PIN_SPI_MISO || pin == PIN_SPI_MOSI ||
-            pin == PIN_SPI_SCK || pin == SX126X_CS || pin == SX126X_RESET || pin == SX126X_BUSY || pin == SX126X_DIO1) {
+        if (pin == PIN_GPS_EN || pin == ADC_CTRL || pin == PIN_BUTTON1 || pin == EXT_PWR_DETECT || pin == EXT_CHRG_DETECT ||
+            pin == PIN_SPI_MISO || pin == PIN_SPI_MOSI || pin == PIN_SPI_SCK || pin == SX126X_CS || pin == SX126X_RESET ||
+            pin == SX126X_BUSY || pin == SX126X_DIO1) {
             continue;
         }
         pinMode(pin, OUTPUT);
@@ -62,15 +66,21 @@ void variant_shutdown()
     digitalWrite(ADC_CTRL, LOW);
     // digitalWrite(RTC_POWER, LOW);
 
-    nrf_gpio_cfg_input(PIN_BUTTON1, NRF_GPIO_PIN_PULLUP); // Configure the pin to be woken up as an input
-    nrf_gpio_pin_sense_t sense1 = NRF_GPIO_PIN_SENSE_LOW;
-    nrf_gpio_cfg_sense_set(PIN_BUTTON1, sense1);
+    // Button wake is always armed - pressing the button is how the user turns the device back on.
+    nrf_gpio_cfg_input(PIN_BUTTON1, NRF_GPIO_PIN_PULLUP);
+    nrf_gpio_cfg_sense_set(PIN_BUTTON1, NRF_GPIO_PIN_SENSE_LOW);
 
-    // If we are sleeping because of low battery, wake up when the solar charger detects power.
-    // But if the user intentionally put us to sleep with the button, don't wake up just because the lights are on
-    if (power->isLowBattery()) {
-        nrf_gpio_cfg_input(EXT_CHRG_DETECT, NRF_GPIO_PIN_PULLUP); // Configure the pin to be woken up as an input
-        nrf_gpio_pin_sense_t sense2 = NRF_GPIO_PIN_SENSE_LOW;
-        nrf_gpio_cfg_sense_set(EXT_CHRG_DETECT, sense2);
+    // For unintentional shutdowns (low battery, on-battery timeout, unknown/crash) also wake
+    // when external power returns - either solar charging or USB plug-in. For intentional user
+    // shutdowns (button long-press, admin command, menu), button is the only wake path so the
+    // user can charge on USB or leave the device in sun without bringing the radio back online.
+    if (!isUserShutdownReason(pendingShutdownReason)) {
+        // Solar charger active (EXT_CHRG_DETECT_VALUE == LOW per variant.h)
+        nrf_gpio_cfg_input(EXT_CHRG_DETECT, NRF_GPIO_PIN_PULLUP);
+        nrf_gpio_cfg_sense_set(EXT_CHRG_DETECT, NRF_GPIO_PIN_SENSE_LOW);
+
+        // USB plugged in (EXT_PWR_DETECT idles low when unplugged, goes HIGH on VBUS)
+        nrf_gpio_cfg_input(EXT_PWR_DETECT, NRF_GPIO_PIN_PULLDOWN);
+        nrf_gpio_cfg_sense_set(EXT_PWR_DETECT, NRF_GPIO_PIN_SENSE_HIGH);
     }
 }

@@ -12,6 +12,7 @@
 #include "MeshService.h"
 #include "NodeDB.h"
 #include "PowerMon.h"
+#include "ShutdownReason.h"
 #include "configuration.h"
 #include "graphics/Screen.h"
 #include "main.h"
@@ -97,6 +98,7 @@ static void sdsEnter()
 static void lowBattSDSEnter()
 {
     LOG_POWERFSM("State: Lower batt SDS");
+    setPendingShutdownReason(SHUTDOWN_REASON_AUTO_LOW_BATTERY);
     doDeepSleep(Default::getConfiguredOrDefaultMs(config.power.sds_secs), false, true);
 }
 extern Power *power;
@@ -104,6 +106,7 @@ extern Power *power;
 static void shutdownEnter()
 {
     LOG_POWERFSM("State: SHUTDOWN");
+    setPendingShutdownReason(SHUTDOWN_REASON_AUTO_ON_BATTERY);
     shutdownAtMsec = millis();
 }
 

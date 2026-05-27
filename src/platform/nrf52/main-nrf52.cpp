@@ -20,6 +20,7 @@
 #include "HardwareRNG.h"
 #include "NodeDB.h"
 #include "PowerMon.h"
+#include "ShutdownReason.h"
 #include "error.h"
 #include "main.h"
 #include "meshUtils.h"
@@ -383,6 +384,15 @@ void nrf52Setup()
     // https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.nrf52832.ps.v1.1%2Fpower.html
     LOG_DEBUG("Reset reason: 0x%x", why);
 
+    // Recover the shutdown reason stashed in GPREGRET[1] before the previous SYSTEM_OFF.
+    // 0xFF (UNKNOWN) typically means a true cold boot, brown-out, or unexpected reset.
+    uint32_t prevShutdownReason = 0;
+    if (sd_power_gpregret_get(1, &prevShutdownReason) != NRF_SUCCESS)
+        prevShutdownReason = NRF_POWER->GPREGRET2;
+    LOG_INFO("Previous shutdown reason: 0x%02x", (uint8_t)prevShutdownReason);
+    if (sd_power_gpregret_clr(1, 0xFF) != NRF_SUCCESS)
+        NRF_POWER->GPREGRET2 = 0;
+
 #ifdef USE_SEMIHOSTING
     nrf52InitSemiHosting();
 #endif
@@ -475,6 +485,17 @@ void cpuDeepSleep(uint32_t msecToWake)
         constexpr uint32_t DFU_MAGIC_SKIP = 0x6d;
         sd_power_gpregret_clr(0, 0xFF);           // Clear the register before setting a new values in it for stability reasons
         sd_power_gpregret_set(0, DFU_MAGIC_SKIP); // Equivalent NRF_POWER->GPREGRET = DFU_MAGIC_SKIP
+
+        // Persist the shutdown reason in GPREGRET[1] so the next boot can log it
+        // for diagnostics. variant_shutdown() reads pendingShutdownReason directly
+        // (above) to decide wake sources, so this write is only for cross-boot
+        // visibility.
+        {
+            uint8_t reason = pendingShutdownReason;
+            if (!(sd_power_gpregret_clr(1, 0xFF) == NRF_SUCCESS && sd_power_gpregret_set(1, reason) == NRF_SUCCESS)) {
+                NRF_POWER->GPREGRET2 = reason;
+            }
+        }
 
         // FIXME, use system off mode with ram retention for key state?
         // FIXME, use non-init RAM per
