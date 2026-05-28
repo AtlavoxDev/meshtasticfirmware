@@ -34,16 +34,61 @@ const uint32_t g_ADigitalPinMap[] = {
 
 void initVariant()
 {
-    // NOTE: an early wake-reject bouncer used to live here. It read GPREGRET[1]
-    // for the prior shutdown reason and, on user-initiated shutdowns, bounced
-    // any wake that wasn't a held button press back to SYSTEM_OFF. It was
-    // removed because the re-entry path was unreliable: NRF_POWER->SYSTEMOFF=1
-    // from this early-init context appears to silently fail (likely DETECT was
-    // still asserted from the just-fired wake), leaving the chip running but
-    // stuck in a spin loop. The late check in nrf52Setup() (main-nrf52.cpp)
-    // still logs prior shutdown reason for diagnostics but no longer rejects.
-    // Solar-light wakes on intentional shutdown will boot the device visibly
-    // until a better bouncer design is in place.
+    // Wake-source check. The user's stated rule:
+    //   "If the boot was caused by an intentional button press → boot.
+    //    If not → only boot if the previous shutdown was unintentional."
+    //
+    // We can't read RESETREAS or NRF_GPIO->LATCH to learn what woke the chip
+    // (the Adafruit UF2 bootloader clears both before jumping to the app), so
+    // we use a behavioral proxy: poll PIN_BUTTON1 for a brief window right
+    // here at the very start of initVariant(). If the user is holding the
+    // button, we'll see it go LOW during the sample window and we allow the
+    // boot. If we never see LOW, the wake was caused by something else (USB
+    // VBUS detect, brown-out, NFC field) and we bounce back to SYSTEM_OFF.
+    //
+    // This means the UX is "hold the button briefly to power on" - a quick
+    // tap that releases before this code runs (~200-600ms after the wake)
+    // will not be detected. That's the trade-off the user has accepted in
+    // exchange for a simple, consistent, easy-to-reason-about rule.
+    //
+    // Skipped when the previous shutdown was NOT user-initiated (auto low-
+    // battery, auto on-battery, or cold-boot UNKNOWN) - those should always
+    // boot. GPREGRET[1] survives SYSTEM_OFF; nrf52Setup() clears it later.
+    uint8_t prevReason = NRF_POWER->GPREGRET2 & 0xFF;
+    if (isUserShutdownReason(prevReason)) {
+        pinMode(PIN_BUTTON1, INPUT_PULLUP);
+        bool buttonPressDetected = false;
+        // ~500ms total window: 100 iterations * 5ms each.
+        for (int i = 0; i < 100; i++) {
+            if (digitalRead(PIN_BUTTON1) == LOW) {
+                buttonPressDetected = true;
+                break;
+            }
+            delay(5);
+        }
+
+        if (!buttonPressDetected) {
+            // Wake was not from a button press. Bounce back to SYSTEM_OFF
+            // silently. Turn off any LEDs the bootloader may have lit, re-arm
+            // SENSE_LOW on the button so the next press wakes us, then write
+            // SYSTEMOFF. GPREGRET[1] is intentionally left untouched - the
+            // next wake re-evaluates with the same prevReason.
+#ifdef LED_POWER
+            pinMode(LED_POWER, OUTPUT);
+            digitalWrite(LED_POWER, LED_STATE_OFF);
+#endif
+#ifdef LED_PAIRING
+            pinMode(LED_PAIRING, OUTPUT);
+            digitalWrite(LED_PAIRING, LED_STATE_OFF);
+#endif
+            nrf_gpio_cfg_input(PIN_BUTTON1, NRF_GPIO_PIN_PULLUP);
+            nrf_gpio_cfg_sense_set(PIN_BUTTON1, NRF_GPIO_PIN_SENSE_LOW);
+            NRF_POWER->SYSTEMOFF = 1;
+            while (true) {
+            }
+        }
+    }
+
     pinMode(LED_PAIRING, OUTPUT);
     ledOff(LED_PAIRING);
 
@@ -78,26 +123,6 @@ void variant_shutdown()
 
     // Button wake is always armed - pressing the button is how the user turns the device back on.
     nrf_gpio_cfg_input(PIN_BUTTON1, NRF_GPIO_PIN_PULLUP);
-    // Wait for the button to be cleanly released before arming SENSE_LOW. If we
-    // arm SENSE while the pin is still LOW (user finishing their long-press, or
-    // mechanical bounce on release), DETECT fires immediately and the subsequent
-    // SYSTEMOFF write in cpuDeepSleep becomes a no-op - leaving the chip running
-    // in the post-SYSTEMOFF while(1) loop, looking dead from the outside but
-    // unable to respond to the next button press. Poll until the pin reads HIGH
-    // for 50ms straight, with a 1s safety timeout in case the button is stuck.
-    uint32_t deadline = millis() + 1000;
-    uint32_t releasedSince = 0;
-    while (millis() < deadline) {
-        if (digitalRead(PIN_BUTTON1) == HIGH) {
-            if (releasedSince == 0) {
-                releasedSince = millis();
-            } else if (millis() - releasedSince >= 50) {
-                break;
-            }
-        } else {
-            releasedSince = 0;
-        }
-    }
     nrf_gpio_cfg_sense_set(PIN_BUTTON1, NRF_GPIO_PIN_SENSE_LOW);
 
     // For unintentional shutdowns (low battery, on-battery timeout, unknown/crash) also wake
