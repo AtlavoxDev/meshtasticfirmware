@@ -2156,15 +2156,15 @@ bool NodeDB::saveToDisk(int saveWhat)
     bool success = saveToDiskNoRetry(saveWhat);
 
     if (!success) {
-        // Previously this path called fsFormat() and retried the save. That
-        // turned a single transient write failure (e.g. a brief voltage dip
-        // during a write on battery) into a catastrophic wipe of every config
-        // file - on the next boot config.proto and module.proto would be
-        // missing, defaults would install, and the user's settings (BT off,
-        // GPS off, region, etc.) would silently revert. Just report the
-        // failure and let the next save attempt try again on its own.
-        LOG_ERROR("Failed to save to disk, segment=%d", saveWhat);
-        RECORD_CRITICALERROR(meshtastic_CriticalErrorCode_FLASH_CORRUPTION_RECOVERABLE);
+        LOG_ERROR("Failed to save to disk, retrying");
+        spiLock->lock();
+        fsFormat();
+        spiLock->unlock();
+
+        success = saveToDiskNoRetry(saveWhat);
+
+        RECORD_CRITICALERROR(success ? meshtastic_CriticalErrorCode_FLASH_CORRUPTION_RECOVERABLE
+                                     : meshtastic_CriticalErrorCode_FLASH_CORRUPTION_UNRECOVERABLE);
     }
 
     return success;
