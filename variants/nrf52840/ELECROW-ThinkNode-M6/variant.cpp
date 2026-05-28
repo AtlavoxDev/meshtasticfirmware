@@ -99,6 +99,22 @@ void initVariant()
 // called from main-nrf52.cpp during the cpuDeepSleep() function
 void variant_shutdown()
 {
+    // "Going to sleep" indicator. Power::shutdown lit LED_POWER solid red when
+    // shutdown was triggered. All LittleFS saves have completed by now and all
+    // peripherals have been shut down by cpuDeepSleep. Signal that the device
+    // is about to enter SYSTEM_OFF (and that it's now safe to press reset) by:
+    //   1. turning the solid red OFF,
+    //   2. quickly blinking both red and blue together once.
+    pinMode(LED_POWER, OUTPUT);
+    pinMode(LED_PAIRING, OUTPUT);
+    digitalWrite(LED_POWER, LED_STATE_OFF);
+    delay(100);
+    digitalWrite(LED_POWER, LED_STATE_ON);
+    digitalWrite(LED_PAIRING, LED_STATE_ON);
+    delay(100);
+    digitalWrite(LED_POWER, LED_STATE_OFF);
+    digitalWrite(LED_PAIRING, LED_STATE_OFF);
+
     // This sets the pin to OUTPUT and LOW for the pins *not* in the if block.
     // EXT_PWR_DETECT and EXT_CHRG_DETECT are skipped here because they are
     // explicitly reconfigured as inputs below for the auto-recovery branch.

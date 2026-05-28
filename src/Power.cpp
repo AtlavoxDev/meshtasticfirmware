@@ -855,6 +855,18 @@ void Power::reboot()
 
 void Power::shutdown()
 {
+    // Solid red LED for the duration of the shutdown sequence. On boards
+    // without a screen or buzzer (e.g. ELECROW ThinkNode-M6) this is the
+    // user's only indication that shutdown is in progress, so they don't
+    // press reset mid-save and corrupt LittleFS. saveToDisk() below blocks
+    // the main thread, so the heartbeat scheduler can't toggle the LED back
+    // off - it stays solid until the chip enters SYSTEM_OFF (where the
+    // variant's variant_shutdown() turns it off as the "safe to reset"
+    // signal). #ifdef-gated so boards without LED_POWER are unaffected.
+#ifdef LED_POWER
+    pinMode(LED_POWER, OUTPUT);
+    digitalWrite(LED_POWER, LED_STATE_ON);
+#endif
 
 #if HAS_SCREEN
     if (screen) {
