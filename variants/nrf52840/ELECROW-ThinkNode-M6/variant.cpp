@@ -34,6 +34,16 @@ const uint32_t g_ADigitalPinMap[] = {
 
 void initVariant()
 {
+    // NOTE: an early wake-reject bouncer used to live here. It read GPREGRET[1]
+    // for the prior shutdown reason and, on user-initiated shutdowns, bounced
+    // any wake that wasn't a held button press back to SYSTEM_OFF. It was
+    // removed because the re-entry path was unreliable: NRF_POWER->SYSTEMOFF=1
+    // from this early-init context appears to silently fail (likely DETECT was
+    // still asserted from the just-fired wake), leaving the chip running but
+    // stuck in a spin loop. The late check in nrf52Setup() (main-nrf52.cpp)
+    // still logs prior shutdown reason for diagnostics but no longer rejects.
+    // Solar-light wakes on intentional shutdown will boot the device visibly
+    // until a better bouncer design is in place.
     pinMode(LED_PAIRING, OUTPUT);
     ledOff(LED_PAIRING);
 
@@ -68,6 +78,26 @@ void variant_shutdown()
 
     // Button wake is always armed - pressing the button is how the user turns the device back on.
     nrf_gpio_cfg_input(PIN_BUTTON1, NRF_GPIO_PIN_PULLUP);
+    // Wait for the button to be cleanly released before arming SENSE_LOW. If we
+    // arm SENSE while the pin is still LOW (user finishing their long-press, or
+    // mechanical bounce on release), DETECT fires immediately and the subsequent
+    // SYSTEMOFF write in cpuDeepSleep becomes a no-op - leaving the chip running
+    // in the post-SYSTEMOFF while(1) loop, looking dead from the outside but
+    // unable to respond to the next button press. Poll until the pin reads HIGH
+    // for 50ms straight, with a 1s safety timeout in case the button is stuck.
+    uint32_t deadline = millis() + 1000;
+    uint32_t releasedSince = 0;
+    while (millis() < deadline) {
+        if (digitalRead(PIN_BUTTON1) == HIGH) {
+            if (releasedSince == 0) {
+                releasedSince = millis();
+            } else if (millis() - releasedSince >= 50) {
+                break;
+            }
+        } else {
+            releasedSince = 0;
+        }
+    }
     nrf_gpio_cfg_sense_set(PIN_BUTTON1, NRF_GPIO_PIN_SENSE_LOW);
 
     // For unintentional shutdowns (low battery, on-battery timeout, unknown/crash) also wake

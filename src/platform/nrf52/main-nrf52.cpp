@@ -391,28 +391,18 @@ void nrf52Setup()
         prevShutdownReason = NRF_POWER->GPREGRET2;
     LOG_INFO("Previous shutdown reason: 0x%02x", (uint8_t)prevShutdownReason);
 
-    // If the previous shutdown was intentional (user button / admin / menu), the only
-    // legitimate wake source is the button (GPIO DETECT on PIN_BUTTON1, which sets
-    // RESETREAS.OFF). Anything else - USB VBUS change, brown-out, NFC field, debug
-    // interface - is an unwanted wake, so refuse to boot and return to SYSTEM_OFF.
-    // GPREGRET[1] is left intact so subsequent unwanted wakes hit this same path,
-    // and the user can still wake the device normally by pressing the button.
-    if (isUserShutdownReason((uint8_t)prevShutdownReason) && !(why & POWER_RESETREAS_OFF_Msk)) {
-        LOG_WARN("Unwanted wake from intentional shutdown (RESETREAS=0x%x); returning to SYSTEM_OFF", why);
-        // Clear RESETREAS so the next wake reports an accurate cause.
-        NRF_POWER->RESETREAS = 0xFFFFFFFFU;
-        // Restore the original reason so variant_shutdown() arms the same wake policy
-        // it did on the original shutdown (button-only for user shutdowns).
-        pendingShutdownReason = (uint8_t)prevShutdownReason;
-        variant_shutdown();
-        // Try the SoftDevice path first; fall back to the direct register write.
-        sd_power_system_off();
-        NRF_POWER->SYSTEMOFF = 1;
-        // Unreachable.
-        while (true) {
-        }
-    }
-
+    // NOTE: an unwanted-wake reject used to live here. The intent was to refuse
+    // boot when the previous shutdown was a user power-off and the wake source
+    // wasn't a button press (RESETREAS.OFF). It was removed because the Adafruit
+    // bootloader's jump-to-app does an NVIC_SystemReset, which sets RESETREAS.SREQ
+    // and clears the original OFF bit - so the check could never distinguish a
+    // legitimate button wake from a spurious one, and rejected every wake after
+    // an intentional shutdown. The prior shutdown reason is still logged above
+    // for diagnostics, but no longer affects boot behavior. Spurious wakes (USB
+    // VBUS, NFC, brown-out) will boot the device visibly; the user can power off
+    // again. Solar-light reject would need a different signal entirely (e.g.
+    // reading EXT_PWR_DETECT / EXT_CHRG_DETECT state after setup is far enough
+    // along to log and shut down gracefully).
     if (sd_power_gpregret_clr(1, 0xFF) != NRF_SUCCESS)
         NRF_POWER->GPREGRET2 = 0;
 

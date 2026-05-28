@@ -50,7 +50,7 @@ class ButtonThread : public Observable<const InputEvent *>, public concurrency::
 {
   public:
     const char *_originName;
-    static const uint32_t c_holdOffTime = 30000; // hold off 30s after boot
+    static const uint32_t c_holdOffTime = 3000; // hold off shutdown long-long-press for 3s after boot to avoid phantom shutdowns from floating pins during peripheral init
     bool initButton(const ButtonConfig &config);
 
     enum ButtonEventType {
