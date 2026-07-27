@@ -19,9 +19,9 @@
 */
 
 #include "variant.h"
+#include "Power.h"
 #include "ShutdownReason.h"
 #include "nrf.h"
-#include "power.h"
 #include "wiring_constants.h"
 #include "wiring_digital.h"
 
