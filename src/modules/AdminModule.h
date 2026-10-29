@@ -40,6 +40,13 @@ class AdminModule : public ProtobufModule<meshtastic_AdminMessage>, public Obser
 
   private:
     bool hasOpenEditTransaction = false;
+    // Each deferred write restarts the clock, so this bounds the gap between writes, not the length
+    // of the edit; a bulk import sends them milliseconds apart.
+    static constexpr uint32_t EDIT_TRANSACTION_IDLE_MS = 60 * 1000;
+    uint32_t editTransactionActivityMs = 0; // millis() of the last save this transaction deferred
+    int deferredEditSegments = 0;           // segments that transaction has touched but not yet saved
+    /// Retire an open edit transaction whose client stopped talking, persisting what it applied.
+    void expireStaleEditTransaction();
 #ifdef PIO_UNIT_TESTING
     int lastSaveWhatForTest = 0;
 #endif
@@ -88,7 +95,9 @@ class AdminModule : public ProtobufModule<meshtastic_AdminMessage>, public Obser
     void handleSetChannel();
 
   public:
-    void handleSetHamMode(const meshtastic_HamParameters &req);
+    /// Applies licensed-operator settings. False if the request was rejected and nothing changed,
+    /// so the caller can answer a want_response client with an error instead of an implicit success.
+    bool handleSetHamMode(const meshtastic_HamParameters &req);
 
     /// Note an admin request leaving this node for a remote, so that remote's response is
     /// accepted. Called from the client-to-mesh path (MeshService::handleToRadio).
